@@ -1,710 +1,682 @@
-import React, { useState, useEffect } from 'react';
-import { UserPlus, LogIn, LogOut, TrendingUp, Brain, Heart, Flame, User, Loader2 } from 'lucide-react';
-
-// Firebase imports
-import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js';
-import { 
-  getAuth, 
-  createUserWithEmailAndPassword, 
-  signInWithEmailAndPassword, 
-  signOut,
-  onAuthStateChanged 
-} from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js';
-import { 
-  getFirestore, 
-  doc, 
-  setDoc, 
-  getDoc, 
-  updateDoc 
-} from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
-
-// Firebase configuration
-const firebaseConfig = {
-  apiKey: "AIzaSyCMnZBmp_tZ-IbR_h_PIcN29qezbm0MNXQ",
-  authDomain: "life-overall.firebaseapp.com",
-  projectId: "life-overall",
-  storageBucket: "life-overall.firebasestorage.app",
-  messagingSenderId: "314757028939",
-  appId: "1:314757028939:web:cbee855b691fe94c0841ce"
-};
-
-// Initialize Firebase
-const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
-const db = getFirestore(app);
-
-// Formulas from your Java code
-const Formulas = {
-  limit: (value, min, max) => Math.max(min, Math.min(max, value)),
-  
-  build: (w, h, b, s) => {
-    const HS = ((h - 140) / 60.0) * 100.0;
-    const HSLimited = Formulas.limit(HS, 0, 100);
-    const bmi = w / Math.pow(h / 100.0, 2);
-    const WS = Formulas.limit(100.0 - 6.0 * Math.abs(bmi - 22.5), 0, 100);
-    const benchRatio = b / w;
-    const SS = Formulas.limit((benchRatio / 1.5) * 100.0, 0, 100);
-    const squatRatio = s / w;
-    const SQ = Formulas.limit((squatRatio / 1.5) * 100.0, 0, 100);
-    return Math.round(0.20 * HSLimited + 0.40 * WS + 0.20 * SS + 0.20 * SQ);
-  },
-  
-  calculateIntelligenceSAT: (gpa, tier1AP, tier2AP, satScore) => {
-    const GS = (gpa / 5.0) * 100.0;
-    const apPoints = 3.0 * tier1AP + 2.0 * tier2AP;
-    const AP_score = Formulas.limit((apPoints / 26.0) * 100.0, 0.0, 100.0);
-    const TS = (satScore / 1600.0) * 100.0;
-    return Math.round(0.45 * GS + 0.25 * AP_score + 0.30 * TS);
-  },
-  
-  calculateIntelligenceACT: (gpa, tier1AP, tier2AP, actScore) => {
-    const GS = (gpa / 5.0) * 100.0;
-    const apPoints = 3.0 * tier1AP + 2.0 * tier2AP;
-    const APscore = Formulas.limit(apPoints * 3.5, 0.0, 100.0);
-    const TS = (actScore / 36.0) * 100.0;
-    return Math.round(0.45 * GS + 0.25 * APscore + 0.30 * TS);
-  },
-  
-  calculateLifestyle: (avgScreenTime, avgSleepHours, weeklyExerciseHours, dailySteps) => {
-    let screenScore;
-    if (avgScreenTime <= 3) {
-      screenScore = (avgScreenTime / 3.0) * 100;
-    } else if (avgScreenTime <= 10) {
-      screenScore = ((10 - avgScreenTime) / 7.0) * 100;
-    } else {
-      screenScore = 0;
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Life Stats Tracker</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    .loader {
+      border: 4px solid #f3f3f3;
+      border-top: 4px solid #a855f7;
+      border-radius: 50%;
+      width: 48px;
+      height: 48px;
+      animation: spin 1s linear infinite;
     }
-    screenScore = Formulas.limit(screenScore, 0, 100);
-    
-    let sleepScore;
-    if (avgSleepHours <= 8) {
-      sleepScore = (avgSleepHours / 8.0) * 100.0;
-    } else if (avgSleepHours <= 12) {
-      sleepScore = ((12 - avgSleepHours) / 4.0) * 100.0;
-    } else {
-      sleepScore = 0;
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
     }
-    sleepScore = Formulas.limit(sleepScore, 0, 100);
-    
-    const exerciseScore = Formulas.limit((weeklyExerciseHours / 7.0) * 100.0, 0, 100);
-    const stepsScore = Formulas.limit((dailySteps / 10000.0) * 100.0, 0, 100);
-    
-    return Math.round(0.25 * screenScore + 0.35 * sleepScore + 0.25 * exerciseScore + 0.15 * stepsScore);
-  },
-  
-  calculateHuzz: (kissCount, bodies, talking, dating) => {
-    const KC = Math.min(kissCount, 10) / 10.0 * 100;
-    const BC = Math.min(bodies, 5) / 15.0 * 100;
-    const TS = talking ? 100.0 : 50.0;
-    const DS = dating ? 100.0 : 60.0;
-    return Math.round(0.40 * KC + 0.20 * BC + 0.20 * TS + 0.20 * DS);
-  },
-  
-  calculateOverall: (build, intelligence, lifestyle, huzz) => {
-    return Math.round((0.35 * build) + (0.40 * intelligence) + (0.25 * lifestyle));
-  }
-};
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body class="bg-gradient-to-br from-gray-900 via-purple-900 to-gray-900 min-h-screen">
 
-const Conversion = {
-  toKG: (lb) => lb / 2.205,
-  toCM: (h) => h * 2.54
-};
+<!-- Loading Screen -->
+<div id="loadingScreen" class="min-h-screen flex items-center justify-center">
+  <div class="loader"></div>
+</div>
 
-const OverallBadge = ({ label, value, color }) => (
-  <div className="bg-gray-800 rounded-lg p-4 border-2" style={{ borderColor: color }}>
-    <div className="text-gray-400 text-sm font-medium mb-1">{label}</div>
-    <div className="text-4xl font-bold" style={{ color }}>{value}</div>
+<!-- Login/Register Screen -->
+<div id="authScreen" class="hidden min-h-screen flex items-center justify-center p-4">
+  <div class="bg-gray-800 rounded-2xl shadow-2xl p-8 w-full max-w-md border border-purple-500">
+    <div class="text-center mb-8">
+      <h1 class="text-4xl font-bold text-white mb-2">Life Stats Tracker</h1>
+      <p class="text-gray-400">NBA 2K Style Overall Rating</p>
+    </div>
+    
+    <!-- Login Form -->
+    <form id="loginForm" class="space-y-4">
+      <div>
+        <label class="block text-gray-300 mb-2">Email</label>
+        <input type="email" id="loginEmail" class="w-full px-4 py-2 bg-gray-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500" required>
+      </div>
+      <div>
+        <label class="block text-gray-300 mb-2">Password</label>
+        <input type="password" id="loginPassword" class="w-full px-4 py-2 bg-gray-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500" required>
+      </div>
+      <p id="authError" class="text-red-400 text-sm hidden"></p>
+      <button type="submit" class="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 rounded-lg">
+        Login
+      </button>
+      <button type="button" id="showRegister" class="w-full text-purple-400 hover:text-purple-300">
+        Don't have an account? Register
+      </button>
+    </form>
+
+    <!-- Register Form -->
+    <form id="registerForm" class="space-y-4 hidden">
+      <div>
+        <label class="block text-gray-300 mb-2">Username</label>
+        <input type="text" id="registerUsername" class="w-full px-4 py-2 bg-gray-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500" required>
+      </div>
+      <div>
+        <label class="block text-gray-300 mb-2">Email</label>
+        <input type="email" id="registerEmail" class="w-full px-4 py-2 bg-gray-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500" required>
+      </div>
+      <div>
+        <label class="block text-gray-300 mb-2">Password</label>
+        <input type="password" id="registerPassword" class="w-full px-4 py-2 bg-gray-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500" required>
+      </div>
+      <div>
+        <label class="block text-gray-300 mb-2">Confirm Password</label>
+        <input type="password" id="registerConfirmPassword" class="w-full px-4 py-2 bg-gray-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500" required>
+      </div>
+      <p id="registerError" class="text-red-400 text-sm hidden"></p>
+      <button type="submit" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 rounded-lg">
+        Register
+      </button>
+      <button type="button" id="showLogin" class="w-full text-purple-400 hover:text-purple-300">
+        Already have an account? Login
+      </button>
+    </form>
   </div>
-);
+</div>
 
-export default function App() {
-  const [currentUser, setCurrentUser] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [view, setView] = useState('login');
-  const [loginForm, setLoginForm] = useState({ email: '', password: '' });
-  const [registerForm, setRegisterForm] = useState({ username: '', email: '', password: '', confirmPassword: '' });
-  const [stats, setStats] = useState(null);
-  const [activeTab, setActiveTab] = useState('overview');
-  const [error, setError] = useState('');
-  const [saving, setSaving] = useState(false);
+<!-- Dashboard -->
+<div id="dashboardScreen" class="hidden p-4">
+  <div class="max-w-6xl mx-auto">
+    <!-- Header -->
+    <div class="bg-gray-800 rounded-2xl p-6 mb-6 border border-purple-500">
+      <div class="flex justify-between items-center">
+        <div class="flex items-center gap-3">
+          <svg class="text-purple-400" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+            <circle cx="12" cy="7" r="4"></circle>
+          </svg>
+          <div>
+            <h1 id="userName" class="text-2xl font-bold text-white">User</h1>
+            <p class="text-gray-400">Life Stats Dashboard</p>
+          </div>
+        </div>
+        <div class="flex items-center gap-3">
+          <span id="savingIndicator" class="text-sm text-gray-400 hidden">Saving...</span>
+          <button id="logoutBtn" class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg">
+            Logout
+          </button>
+        </div>
+      </div>
+    </div>
 
-  // Default stats structure
-  const defaultStats = {
-    name: '',
-    weight: 0,
-    height: 0,
-    bench: 0,
-    squat: 0,
-    gpa: 0,
-    tier1AP: 0,
-    tier2AP: 0,
-    testType: 'SAT',
-    testScore: 0,
-    screenTime: 0,
-    sleepHours: 0,
-    exerciseHours: 0,
-    dailySteps: 0,
-    kissCount: 0,
-    bodyCount: 0,
-    talking: false,
-    dating: false
+    <!-- Overall Display -->
+    <div class="bg-gradient-to-r from-purple-600 to-blue-600 rounded-2xl p-8 mb-6 text-center">
+      <h2 class="text-white text-xl mb-2">TOTAL OVERALL</h2>
+      <div id="totalOverall" class="text-8xl font-bold text-white mb-2">0</div>
+      <div class="text-white text-lg">OVR</div>
+    </div>
+
+    <!-- Category Overalls -->
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+      <div class="bg-gray-800 rounded-lg p-4 border-2 border-green-500">
+        <div class="text-gray-400 text-sm font-medium mb-1">BUILD</div>
+        <div id="buildOverall" class="text-4xl font-bold text-green-500">0</div>
+      </div>
+      <div class="bg-gray-800 rounded-lg p-4 border-2 border-blue-500">
+        <div class="text-gray-400 text-sm font-medium mb-1">INTELLIGENCE</div>
+        <div id="intelligenceOverall" class="text-4xl font-bold text-blue-500">0</div>
+      </div>
+      <div class="bg-gray-800 rounded-lg p-4 border-2 border-orange-500">
+        <div class="text-gray-400 text-sm font-medium mb-1">LIFESTYLE</div>
+        <div id="lifestyleOverall" class="text-4xl font-bold text-orange-500">0</div>
+      </div>
+      <div class="bg-gray-800 rounded-lg p-4 border-2 border-red-500">
+        <div class="text-gray-400 text-sm font-medium mb-1">HUZZ</div>
+        <div id="huzzOverall" class="text-4xl font-bold text-red-500">0</div>
+      </div>
+    </div>
+
+    <!-- Tabs -->
+    <div class="bg-gray-800 rounded-t-2xl border border-gray-700">
+      <div class="flex border-b border-gray-700 overflow-x-auto">
+        <button class="tab-btn flex-1 py-4 px-4 text-center capitalize font-medium bg-purple-600 text-white" data-tab="overview">Overview</button>
+        <button class="tab-btn flex-1 py-4 px-4 text-center capitalize font-medium text-gray-400 hover:text-white" data-tab="build">Build</button>
+        <button class="tab-btn flex-1 py-4 px-4 text-center capitalize font-medium text-gray-400 hover:text-white" data-tab="intelligence">Intelligence</button>
+        <button class="tab-btn flex-1 py-4 px-4 text-center capitalize font-medium text-gray-400 hover:text-white" data-tab="lifestyle">Lifestyle</button>
+        <button class="tab-btn flex-1 py-4 px-4 text-center capitalize font-medium text-gray-400 hover:text-white" data-tab="huzz">Huzz</button>
+      </div>
+    </div>
+
+    <!-- Tab Content -->
+    <div class="bg-gray-800 rounded-b-2xl p-6 border-x border-b border-gray-700">
+      <!-- Overview Tab -->
+      <div id="overviewTab" class="tab-content text-white space-y-4">
+        <h3 class="text-2xl font-bold mb-4">Overview</h3>
+        <p class="text-gray-300">Welcome to your Life Stats Dashboard! Update your stats in each category to calculate your overall rating. All changes are saved automatically to Firebase.</p>
+        <div class="grid md:grid-cols-2 gap-4 mt-6">
+          <div class="bg-gray-700 p-4 rounded-lg">
+            <h4 class="font-bold mb-2">📈 Build</h4>
+            <p class="text-sm text-gray-300">Track your physical stats including weight, height, bench press, and squat.</p>
+          </div>
+          <div class="bg-gray-700 p-4 rounded-lg">
+            <h4 class="font-bold mb-2">🧠 Intelligence</h4>
+            <p class="text-sm text-gray-300">Academic performance including GPA, AP classes, and test scores.</p>
+          </div>
+          <div class="bg-gray-700 p-4 rounded-lg">
+            <h4 class="font-bold mb-2">❤️ Lifestyle</h4>
+            <p class="text-sm text-gray-300">Daily habits like screen time, sleep, exercise, and steps.</p>
+          </div>
+          <div class="bg-gray-700 p-4 rounded-lg">
+            <h4 class="font-bold mb-2">🔥 Huzz</h4>
+            <p class="text-sm text-gray-300">Relationship stats and social connections.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Build Tab -->
+      <div id="buildTab" class="tab-content hidden space-y-4">
+        <h3 class="text-2xl font-bold text-white mb-4">Build Stats</h3>
+        <div class="grid md:grid-cols-2 gap-4">
+          <div>
+            <label class="block text-gray-300 mb-2">Weight (lbs)</label>
+            <input type="number" id="weight" class="w-full px-4 py-2 bg-gray-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500">
+          </div>
+          <div>
+            <label class="block text-gray-300 mb-2">Height (inches)</label>
+            <input type="number" id="height" class="w-full px-4 py-2 bg-gray-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500">
+          </div>
+          <div>
+            <label class="block text-gray-300 mb-2">Max Bench (lbs)</label>
+            <input type="number" id="bench" class="w-full px-4 py-2 bg-gray-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500">
+          </div>
+          <div>
+            <label class="block text-gray-300 mb-2">Max Squat (lbs)</label>
+            <input type="number" id="squat" class="w-full px-4 py-2 bg-gray-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500">
+          </div>
+        </div>
+      </div>
+
+      <!-- Intelligence Tab -->
+      <div id="intelligenceTab" class="tab-content hidden space-y-4">
+        <h3 class="text-2xl font-bold text-white mb-4">Intelligence Stats</h3>
+        <div class="grid md:grid-cols-2 gap-4">
+          <div>
+            <label class="block text-gray-300 mb-2">Weighted GPA</label>
+            <input type="number" step="0.01" id="gpa" class="w-full px-4 py-2 bg-gray-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500">
+          </div>
+          <div>
+            <label class="block text-gray-300 mb-2">Tier 1 AP Classes</label>
+            <input type="number" id="tier1AP" class="w-full px-4 py-2 bg-gray-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500">
+          </div>
+          <div>
+            <label class="block text-gray-300 mb-2">Tier 2 AP Classes</label>
+            <input type="number" id="tier2AP" class="w-full px-4 py-2 bg-gray-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500">
+          </div>
+          <div>
+            <label class="block text-gray-300 mb-2">Test Type</label>
+            <select id="testType" class="w-full px-4 py-2 bg-gray-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500">
+              <option value="SAT">SAT</option>
+              <option value="ACT">ACT</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-gray-300 mb-2"><span id="testTypeLabel">SAT</span> Score</label>
+            <input type="number" id="testScore" placeholder="Out of 1600" class="w-full px-4 py-2 bg-gray-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500">
+          </div>
+        </div>
+      </div>
+
+      <!-- Lifestyle Tab -->
+      <div id="lifestyleTab" class="tab-content hidden space-y-4">
+        <h3 class="text-2xl font-bold text-white mb-4">Lifestyle Stats</h3>
+        <div class="grid md:grid-cols-2 gap-4">
+          <div>
+            <label class="block text-gray-300 mb-2">Screen Time (hours/day)</label>
+            <input type="number" step="0.1" id="screenTime" class="w-full px-4 py-2 bg-gray-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500">
+          </div>
+          <div>
+            <label class="block text-gray-300 mb-2">Sleep (hours/night)</label>
+            <input type="number" step="0.1" id="sleepHours" class="w-full px-4 py-2 bg-gray-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500">
+          </div>
+          <div>
+            <label class="block text-gray-300 mb-2">Exercise (hours/week)</label>
+            <input type="number" step="0.1" id="exerciseHours" class="w-full px-4 py-2 bg-gray-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500">
+          </div>
+          <div>
+            <label class="block text-gray-300 mb-2">Daily Steps</label>
+            <input type="number" id="dailySteps" class="w-full px-4 py-2 bg-gray-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500">
+          </div>
+        </div>
+      </div>
+
+      <!-- Huzz Tab -->
+      <div id="huzzTab" class="tab-content hidden space-y-4">
+        <h3 class="text-2xl font-bold text-white mb-4">Huzz Stats</h3>
+        <div class="grid md:grid-cols-2 gap-4">
+          <div>
+            <label class="block text-gray-300 mb-2">Kiss Count</label>
+            <input type="number" id="kissCount" class="w-full px-4 py-2 bg-gray-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500">
+          </div>
+          <div>
+            <label class="block text-gray-300 mb-2">Body Count</label>
+            <input type="number" id="bodyCount" class="w-full px-4 py-2 bg-gray-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500">
+          </div>
+          <div>
+            <label class="flex items-center text-gray-300 cursor-pointer">
+              <input type="checkbox" id="talking" class="mr-2 w-5 h-5 accent-purple-600">
+              Talking to Someone
+            </label>
+          </div>
+          <div>
+            <label class="flex items-center text-gray-300 cursor-pointer">
+              <input type="checkbox" id="dating" class="mr-2 w-5 h-5 accent-purple-600">
+              Dating Someone
+            </label>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+  import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js';
+  import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js';
+  import { getFirestore, doc, setDoc, getDoc, updateDoc } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
+
+  // Firebase configuration
+  const firebaseConfig = {
+    apiKey: "AIzaSyCMnZBmp_tZ-IbR_h_PIcN29qezbm0MNXQ",
+    authDomain: "life-overall.firebaseapp.com",
+    projectId: "life-overall",
+    storageBucket: "life-overall.firebasestorage.app",
+    messagingSenderId: "314757028939",
+    appId: "1:314757028939:web:cbee855b691fe94c0841ce"
   };
 
-  // Listen for auth state changes
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      if (user) {
-        setCurrentUser(user);
-        await loadUserStats(user.uid);
-        setView('dashboard');
+  const app = initializeApp(firebaseConfig);
+  const auth = getAuth(app);
+  const db = getFirestore(app);
+
+  let currentUser = null;
+  let userStats = {};
+  let saveTimeout = null;
+
+  // Formulas
+  const Formulas = {
+    limit: (value, min, max) => Math.max(min, Math.min(max, value)),
+    
+    build: (w, h, b, s) => {
+      const HS = ((h - 140) / 60.0) * 100.0;
+      const HSLimited = Formulas.limit(HS, 0, 100);
+      const bmi = w / Math.pow(h / 100.0, 2);
+      const WS = Formulas.limit(100.0 - 6.0 * Math.abs(bmi - 22.5), 0, 100);
+      const benchRatio = b / w;
+      const SS = Formulas.limit((benchRatio / 1.5) * 100.0, 0, 100);
+      const squatRatio = s / w;
+      const SQ = Formulas.limit((squatRatio / 1.5) * 100.0, 0, 100);
+      return Math.round(0.20 * HSLimited + 0.40 * WS + 0.20 * SS + 0.20 * SQ);
+    },
+    
+    calculateIntelligenceSAT: (gpa, tier1AP, tier2AP, satScore) => {
+      const GS = (gpa / 5.0) * 100.0;
+      const apPoints = 3.0 * tier1AP + 2.0 * tier2AP;
+      const AP_score = Formulas.limit((apPoints / 26.0) * 100.0, 0.0, 100.0);
+      const TS = (satScore / 1600.0) * 100.0;
+      return Math.round(0.45 * GS + 0.25 * AP_score + 0.30 * TS);
+    },
+    
+    calculateIntelligenceACT: (gpa, tier1AP, tier2AP, actScore) => {
+      const GS = (gpa / 5.0) * 100.0;
+      const apPoints = 3.0 * tier1AP + 2.0 * tier2AP;
+      const APscore = Formulas.limit(apPoints * 3.5, 0.0, 100.0);
+      const TS = (actScore / 36.0) * 100.0;
+      return Math.round(0.45 * GS + 0.25 * APscore + 0.30 * TS);
+    },
+    
+    calculateLifestyle: (avgScreenTime, avgSleepHours, weeklyExerciseHours, dailySteps) => {
+      let screenScore;
+      if (avgScreenTime <= 3) {
+        screenScore = (avgScreenTime / 3.0) * 100;
+      } else if (avgScreenTime <= 10) {
+        screenScore = ((10 - avgScreenTime) / 7.0) * 100;
       } else {
-        setCurrentUser(null);
-        setStats(null);
-        setView('login');
+        screenScore = 0;
       }
-      setLoading(false);
-    });
+      screenScore = Formulas.limit(screenScore, 0, 100);
+      
+      let sleepScore;
+      if (avgSleepHours <= 8) {
+        sleepScore = (avgSleepHours / 8.0) * 100.0;
+      } else if (avgSleepHours <= 12) {
+        sleepScore = ((12 - avgSleepHours) / 4.0) * 100.0;
+      } else {
+        sleepScore = 0;
+      }
+      sleepScore = Formulas.limit(sleepScore, 0, 100);
+      
+      const exerciseScore = Formulas.limit((weeklyExerciseHours / 7.0) * 100.0, 0, 100);
+      const stepsScore = Formulas.limit((dailySteps / 10000.0) * 100.0, 0, 100);
+      
+      return Math.round(0.25 * screenScore + 0.35 * sleepScore + 0.25 * exerciseScore + 0.15 * stepsScore);
+    },
+    
+    calculateHuzz: (kissCount, bodies, talking, dating) => {
+      const KC = Math.min(kissCount, 10) / 10.0 * 100;
+      const BC = Math.min(bodies, 5) / 15.0 * 100;
+      const TS = talking ? 100.0 : 50.0;
+      const DS = dating ? 100.0 : 60.0;
+      return Math.round(0.40 * KC + 0.20 * BC + 0.20 * TS + 0.20 * DS);
+    },
+    
+    calculateOverall: (build, intelligence, lifestyle, huzz) => {
+      return Math.round((0.35 * build) + (0.40 * intelligence) + (0.25 * lifestyle));
+    }
+  };
 
-    return () => unsubscribe();
-  }, []);
+  const Conversion = {
+    toKG: (lb) => lb / 2.205,
+    toCM: (h) => h * 2.54
+  };
 
-  // Load user stats from Firestore
-  const loadUserStats = async (uid) => {
+  // UI Functions
+  function showScreen(screen) {
+    document.getElementById('loadingScreen').classList.add('hidden');
+    document.getElementById('authScreen').classList.add('hidden');
+    document.getElementById('dashboardScreen').classList.add('hidden');
+    document.getElementById(screen).classList.remove('hidden');
+  }
+
+  function showError(elementId, message) {
+    const el = document.getElementById(elementId);
+    el.textContent = message;
+    el.classList.remove('hidden');
+  }
+
+  function hideError(elementId) {
+    document.getElementById(elementId).classList.add('hidden');
+  }
+
+  // Auth Functions
+  async function loadUserStats(uid) {
     try {
       const docRef = doc(db, 'users', uid);
       const docSnap = await getDoc(docRef);
       
       if (docSnap.exists()) {
-        setStats(docSnap.data());
+        userStats = docSnap.data();
       } else {
-        // Create default stats for new user
-        const newStats = { ...defaultStats };
-        await setDoc(docRef, newStats);
-        setStats(newStats);
+        userStats = {
+          name: '',
+          weight: 0,
+          height: 0,
+          bench: 0,
+          squat: 0,
+          gpa: 0,
+          tier1AP: 0,
+          tier2AP: 0,
+          testType: 'SAT',
+          testScore: 0,
+          screenTime: 0,
+          sleepHours: 0,
+          exerciseHours: 0,
+          dailySteps: 0,
+          kissCount: 0,
+          bodyCount: 0,
+          talking: false,
+          dating: false
+        };
+        await setDoc(docRef, userStats);
       }
+      populateForm();
+      calculateAndDisplayOveralls();
     } catch (err) {
       console.error('Error loading stats:', err);
-      setError('Failed to load your stats');
     }
-  };
+  }
 
-  // Handle registration
-  const handleRegister = async (e) => {
-    e.preventDefault();
-    setError('');
+  function populateForm() {
+    document.getElementById('userName').textContent = userStats.name || 'User';
+    document.getElementById('weight').value = userStats.weight || 0;
+    document.getElementById('height').value = userStats.height || 0;
+    document.getElementById('bench').value = userStats.bench || 0;
+    document.getElementById('squat').value = userStats.squat || 0;
+    document.getElementById('gpa').value = userStats.gpa || 0;
+    document.getElementById('tier1AP').value = userStats.tier1AP || 0;
+    document.getElementById('tier2AP').value = userStats.tier2AP || 0;
+    document.getElementById('testType').value = userStats.testType || 'SAT';
+    document.getElementById('testScore').value = userStats.testScore || 0;
+    document.getElementById('screenTime').value = userStats.screenTime || 0;
+    document.getElementById('sleepHours').value = userStats.sleepHours || 0;
+    document.getElementById('exerciseHours').value = userStats.exerciseHours || 0;
+    document.getElementById('dailySteps').value = userStats.dailySteps || 0;
+    document.getElementById('kissCount').value = userStats.kissCount || 0;
+    document.getElementById('bodyCount').value = userStats.bodyCount || 0;
+    document.getElementById('talking').checked = userStats.talking || false;
+    document.getElementById('dating').checked = userStats.dating || false;
+    updateTestTypeLabel();
+  }
+
+  function calculateAndDisplayOveralls() {
+    const weightKG = Conversion.toKG(userStats.weight || 0);
+    const heightCM = Conversion.toCM(userStats.height || 0);
+    const benchKG = Conversion.toKG(userStats.bench || 0);
+    const squatKG = Conversion.toKG(userStats.squat || 0);
     
-    if (registerForm.password !== registerForm.confirmPassword) {
-      setError('Passwords do not match');
-      return;
-    }
+    const build = userStats.weight > 0 ? Formulas.build(weightKG, heightCM, benchKG, squatKG) : 0;
+    const intelligence = userStats.gpa > 0 
+      ? (userStats.testType === 'SAT' 
+          ? Formulas.calculateIntelligenceSAT(userStats.gpa, userStats.tier1AP, userStats.tier2AP, userStats.testScore)
+          : Formulas.calculateIntelligenceACT(userStats.gpa, userStats.tier1AP, userStats.tier2AP, userStats.testScore))
+      : 0;
+    const lifestyle = userStats.sleepHours > 0 
+      ? Formulas.calculateLifestyle(userStats.screenTime, userStats.sleepHours, userStats.exerciseHours, userStats.dailySteps)
+      : 0;
+    const huzz = Formulas.calculateHuzz(userStats.kissCount || 0, userStats.bodyCount || 0, userStats.talking || false, userStats.dating || false);
+    const total = Formulas.calculateOverall(build, intelligence, lifestyle, huzz);
+    
+    document.getElementById('buildOverall').textContent = build;
+    document.getElementById('intelligenceOverall').textContent = intelligence;
+    document.getElementById('lifestyleOverall').textContent = lifestyle;
+    document.getElementById('huzzOverall').textContent = huzz;
+    document.getElementById('totalOverall').textContent = total;
+  }
 
-    if (registerForm.password.length < 6) {
-      setError('Password must be at least 6 characters');
-      return;
-    }
-
-    setLoading(true);
+  async function saveUserStats() {
+    if (!currentUser) return;
+    
+    document.getElementById('savingIndicator').classList.remove('hidden');
     try {
-      const userCredential = await createUserWithEmailAndPassword(
-        auth, 
-        registerForm.email, 
-        registerForm.password
-      );
-      
-      // Create user document with default stats
-      const newStats = { ...defaultStats, name: registerForm.username };
-      await setDoc(doc(db, 'users', userCredential.user.uid), newStats);
-      
-      setStats(newStats);
-      setRegisterForm({ username: '', email: '', password: '', confirmPassword: '' });
+      await updateDoc(doc(db, 'users', currentUser.uid), userStats);
+      setTimeout(() => {
+        document.getElementById('savingIndicator').classList.add('hidden');
+      }, 500);
     } catch (err) {
-      console.error('Registration error:', err);
-      if (err.code === 'auth/email-already-in-use') {
-        setError('Email already in use');
-      } else if (err.code === 'auth/invalid-email') {
-        setError('Invalid email address');
-      } else {
-        setError('Registration failed. Please try again.');
-      }
+      console.error('Error saving stats:', err);
     }
-    setLoading(false);
-  };
+  }
 
-  // Handle login
-  const handleLogin = async (e) => {
+  function updateTestTypeLabel() {
+    const testType = document.getElementById('testType').value;
+    document.getElementById('testTypeLabel').textContent = testType;
+    document.getElementById('testScore').placeholder = testType === 'SAT' ? 'Out of 1600' : 'Out of 36';
+  }
+
+  function debouncedSave() {
+    if (saveTimeout) clearTimeout(saveTimeout);
+    saveTimeout = setTimeout(() => {
+      saveUserStats();
+      calculateAndDisplayOveralls();
+    }, 1000);
+  }
+
+  // Event Listeners
+  document.getElementById('showRegister').addEventListener('click', () => {
+    document.getElementById('loginForm').classList.add('hidden');
+    document.getElementById('registerForm').classList.remove('hidden');
+    hideError('authError');
+    hideError('registerError');
+  });
+
+  document.getElementById('showLogin').addEventListener('click', () => {
+    document.getElementById('registerForm').classList.add('hidden');
+    document.getElementById('loginForm').classList.remove('hidden');
+    hideError('authError');
+    hideError('registerError');
+  });
+
+  document.getElementById('loginForm').addEventListener('submit', async (e) => {
     e.preventDefault();
-    setError('');
-    setLoading(true);
+    hideError('authError');
+    
+    const email = document.getElementById('loginEmail').value;
+    const password = document.getElementById('loginPassword').value;
     
     try {
-      await signInWithEmailAndPassword(auth, loginForm.email, loginForm.password);
-      setLoginForm({ email: '', password: '' });
+      await signInWithEmailAndPassword(auth, email, password);
+      document.getElementById('loginEmail').value = '';
+      document.getElementById('loginPassword').value = '';
     } catch (err) {
       console.error('Login error:', err);
       if (err.code === 'auth/invalid-credential') {
-        setError('Invalid email or password');
+        showError('authError', 'Invalid email or password');
       } else if (err.code === 'auth/user-not-found') {
-        setError('No account found with this email');
+        showError('authError', 'No account found with this email');
       } else {
-        setError('Login failed. Please try again.');
+        showError('authError', 'Login failed. Please try again.');
       }
     }
-    setLoading(false);
-  };
+  });
 
-  // Handle logout
-  const handleLogout = async () => {
+  document.getElementById('registerForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    hideError('registerError');
+    
+    const username = document.getElementById('registerUsername').value;
+    const email = document.getElementById('registerEmail').value;
+    const password = document.getElementById('registerPassword').value;
+    const confirmPassword = document.getElementById('registerConfirmPassword').value;
+    
+    if (password !== confirmPassword) {
+      showError('registerError', 'Passwords do not match');
+      return;
+    }
+
+    if (password.length < 6) {
+      showError('registerError', 'Password must be at least 6 characters');
+      return;
+    }
+
+    try {
+      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+      const newStats = {
+        name: username,
+        weight: 0,
+        height: 0,
+        bench: 0,
+        squat: 0,
+        gpa: 0,
+        tier1AP: 0,
+        tier2AP: 0,
+        testType: 'SAT',
+        testScore: 0,
+        screenTime: 0,
+        sleepHours: 0,
+        exerciseHours: 0,
+        dailySteps: 0,
+        kissCount: 0,
+        bodyCount: 0,
+        talking: false,
+        dating: false
+      };
+      await setDoc(doc(db, 'users', userCredential.user.uid), newStats);
+      
+      document.getElementById('registerUsername').value = '';
+      document.getElementById('registerEmail').value = '';
+      document.getElementById('registerPassword').value = '';
+      document.getElementById('registerConfirmPassword').value = '';
+    } catch (err) {
+      console.error('Registration error:', err);
+      if (err.code === 'auth/email-already-in-use') {
+        showError('registerError', 'Email already in use');
+      } else if (err.code === 'auth/invalid-email') {
+        showError('registerError', 'Invalid email address');
+      } else {
+        showError('registerError', 'Registration failed. Please try again.');
+      }
+    }
+  });
+
+  document.getElementById('logoutBtn').addEventListener('click', async () => {
     try {
       await signOut(auth);
     } catch (err) {
       console.error('Logout error:', err);
     }
-  };
+  });
 
-  // Update user stats in Firestore
-  const updateUserStats = async (newStats) => {
-    if (!currentUser) return;
-    
-    const updatedStats = { ...stats, ...newStats };
-    setStats(updatedStats);
-    
-    // Debounced save to Firestore
-    setSaving(true);
-    try {
-      await updateDoc(doc(db, 'users', currentUser.uid), updatedStats);
-      setTimeout(() => setSaving(false), 500);
-    } catch (err) {
-      console.error('Error updating stats:', err);
-      setError('Failed to save changes');
-      setSaving(false);
+  // Tab switching
+  document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const tab = btn.dataset.tab;
+      
+      // Update button styles
+      document.querySelectorAll('.tab-btn').forEach(b => {
+        b.classList.remove('bg-purple-600', 'text-white');
+        b.classList.add('text-gray-400', 'hover:text-white');
+      });
+      btn.classList.add('bg-purple-600', 'text-white');
+      btn.classList.remove('text-gray-400', 'hover:text-white');
+      
+      // Update tab content
+      document.querySelectorAll('.tab-content').forEach(content => {
+        content.classList.add('hidden');
+      });
+      document.getElementById(tab + 'Tab').classList.remove('hidden');
+    });
+  });
+
+  // Form input listeners
+  const inputFields = ['weight', 'height', 'bench', 'squat', 'gpa', 'tier1AP', 'tier2AP', 
+                       'testScore', 'screenTime', 'sleepHours', 'exerciseHours', 'dailySteps',
+                       'kissCount', 'bodyCount'];
+  
+  inputFields.forEach(field => {
+    document.getElementById(field).addEventListener('input', (e) => {
+      userStats[field] = parseFloat(e.target.value) || 0;
+      debouncedSave();
+    });
+  });
+
+  document.getElementById('testType').addEventListener('change', (e) => {
+    userStats.testType = e.target.value;
+    updateTestTypeLabel();
+    debouncedSave();
+  });
+
+  document.getElementById('talking').addEventListener('change', (e) => {
+    userStats.talking = e.target.checked;
+    debouncedSave();
+  });
+
+  document.getElementById('dating').addEventListener('change', (e) => {
+    userStats.dating = e.target.checked;
+    debouncedSave();
+  });
+
+  // Auth state observer
+  onAuthStateChanged(auth, async (user) => {
+    if (user) {
+      currentUser = user;
+      await loadUserStats(user.uid);
+      showScreen('dashboardScreen');
+    } else {
+      currentUser = null;
+      userStats = {};
+      showScreen('authScreen');
     }
-  };
+  });
+</script>
 
-  const calculateOveralls = () => {
-    if (!stats) return { build: 0, intelligence: 0, lifestyle: 0, huzz: 0, total: 0 };
-    
-    const weightKG = Conversion.toKG(stats.weight);
-    const heightCM = Conversion.toCM(stats.height);
-    const benchKG = Conversion.toKG(stats.bench);
-    const squatKG = Conversion.toKG(stats.squat);
-    
-    const build = stats.weight > 0 ? Formulas.build(weightKG, heightCM, benchKG, squatKG) : 0;
-    
-    const intelligence = stats.gpa > 0 
-      ? (stats.testType === 'SAT' 
-          ? Formulas.calculateIntelligenceSAT(stats.gpa, stats.tier1AP, stats.tier2AP, stats.testScore)
-          : Formulas.calculateIntelligenceACT(stats.gpa, stats.tier1AP, stats.tier2AP, stats.testScore))
-      : 0;
-    
-    const lifestyle = stats.sleepHours > 0 
-      ? Formulas.calculateLifestyle(stats.screenTime, stats.sleepHours, stats.exerciseHours, stats.dailySteps)
-      : 0;
-    
-    const huzz = Formulas.calculateHuzz(stats.kissCount, stats.bodyCount, stats.talking, stats.dating);
-    
-    const total = Formulas.calculateOverall(build, intelligence, lifestyle, huzz);
-    
-    return { build, intelligence, lifestyle, huzz, total };
-  };
-
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-gray-900 flex items-center justify-center">
-        <Loader2 className="text-purple-400 animate-spin" size={48} />
-      </div>
-    );
-  }
-
-  if (view === 'login' || view === 'register') {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-gray-900 flex items-center justify-center p-4">
-        <div className="bg-gray-800 rounded-2xl shadow-2xl p-8 w-full max-w-md border border-purple-500">
-          <div className="text-center mb-8">
-            <h1 className="text-4xl font-bold text-white mb-2">Life Stats Tracker</h1>
-            <p className="text-gray-400">NBA 2K Style Overall Rating</p>
-          </div>
-          
-          {view === 'login' ? (
-            <form onSubmit={handleLogin} className="space-y-4">
-              <div>
-                <label className="block text-gray-300 mb-2">Email</label>
-                <input
-                  type="email"
-                  value={loginForm.email}
-                  onChange={(e) => setLoginForm({ ...loginForm, email: e.target.value })}
-                  className="w-full px-4 py-2 bg-gray-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-                  required
-                />
-              </div>
-              <div>
-                <label className="block text-gray-300 mb-2">Password</label>
-                <input
-                  type="password"
-                  value={loginForm.password}
-                  onChange={(e) => setLoginForm({ ...loginForm, password: e.target.value })}
-                  className="w-full px-4 py-2 bg-gray-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-                  required
-                />
-              </div>
-              {error && <p className="text-red-400 text-sm">{error}</p>}
-              <button 
-                type="submit" 
-                disabled={loading}
-                className="w-full bg-purple-600 hover:bg-purple-700 disabled:bg-purple-800 text-white font-bold py-3 rounded-lg flex items-center justify-center gap-2"
-              >
-                {loading ? <Loader2 className="animate-spin" size={20} /> : <LogIn size={20} />}
-                {loading ? 'Logging in...' : 'Login'}
-              </button>
-              <button type="button" onClick={() => setView('register')} className="w-full text-purple-400 hover:text-purple-300">
-                Don't have an account? Register
-              </button>
-            </form>
-          ) : (
-            <form onSubmit={handleRegister} className="space-y-4">
-              <div>
-                <label className="block text-gray-300 mb-2">Username</label>
-                <input
-                  type="text"
-                  value={registerForm.username}
-                  onChange={(e) => setRegisterForm({ ...registerForm, username: e.target.value })}
-                  className="w-full px-4 py-2 bg-gray-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-                  required
-                />
-              </div>
-              <div>
-                <label className="block text-gray-300 mb-2">Email</label>
-                <input
-                  type="email"
-                  value={registerForm.email}
-                  onChange={(e) => setRegisterForm({ ...registerForm, email: e.target.value })}
-                  className="w-full px-4 py-2 bg-gray-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-                  required
-                />
-              </div>
-              <div>
-                <label className="block text-gray-300 mb-2">Password</label>
-                <input
-                  type="password"
-                  value={registerForm.password}
-                  onChange={(e) => setRegisterForm({ ...registerForm, password: e.target.value })}
-                  className="w-full px-4 py-2 bg-gray-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-                  required
-                />
-              </div>
-              <div>
-                <label className="block text-gray-300 mb-2">Confirm Password</label>
-                <input
-                  type="password"
-                  value={registerForm.confirmPassword}
-                  onChange={(e) => setRegisterForm({ ...registerForm, confirmPassword: e.target.value })}
-                  className="w-full px-4 py-2 bg-gray-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-                  required
-                />
-              </div>
-              {error && <p className="text-red-400 text-sm">{error}</p>}
-              <button 
-                type="submit" 
-                disabled={loading}
-                className="w-full bg-green-600 hover:bg-green-700 disabled:bg-green-800 text-white font-bold py-3 rounded-lg flex items-center justify-center gap-2"
-              >
-                {loading ? <Loader2 className="animate-spin" size={20} /> : <UserPlus size={20} />}
-                {loading ? 'Creating account...' : 'Register'}
-              </button>
-              <button type="button" onClick={() => setView('login')} className="w-full text-purple-400 hover:text-purple-300">
-                Already have an account? Login
-              </button>
-            </form>
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  const overalls = calculateOveralls();
-
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-gray-900 p-4">
-      <div className="max-w-6xl mx-auto">
-        {/* Header */}
-        <div className="bg-gray-800 rounded-2xl p-6 mb-6 border border-purple-500">
-          <div className="flex justify-between items-center">
-            <div className="flex items-center gap-3">
-              <User className="text-purple-400" size={32} />
-              <div>
-                <h1 className="text-2xl font-bold text-white">{stats?.name || 'User'}</h1>
-                <p className="text-gray-400">Life Stats Dashboard</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-3">
-              {saving && (
-                <span className="text-sm text-gray-400 flex items-center gap-2">
-                  <Loader2 className="animate-spin" size={16} />
-                  Saving...
-                </span>
-              )}
-              <button onClick={handleLogout} className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg flex items-center gap-2">
-                <LogOut size={20} /> Logout
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {/* Overall Display */}
-        <div className="bg-gradient-to-r from-purple-600 to-blue-600 rounded-2xl p-8 mb-6 text-center">
-          <h2 className="text-white text-xl mb-2">TOTAL OVERALL</h2>
-          <div className="text-8xl font-bold text-white mb-2">{overalls.total}</div>
-          <div className="text-white text-lg">OVR</div>
-        </div>
-
-        {/* Category Overalls */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-          <OverallBadge label="BUILD" value={overalls.build} color="#10b981" />
-          <OverallBadge label="INTELLIGENCE" value={overalls.intelligence} color="#3b82f6" />
-          <OverallBadge label="LIFESTYLE" value={overalls.lifestyle} color="#f59e0b" />
-          <OverallBadge label="HUZZ" value={overalls.huzz} color="#ef4444" />
-        </div>
-
-        {/* Tabs */}
-        <div className="bg-gray-800 rounded-t-2xl border border-gray-700">
-          <div className="flex border-b border-gray-700 overflow-x-auto">
-            {['overview', 'build', 'intelligence', 'lifestyle', 'huzz'].map((tab) => (
-              <button
-                key={tab}
-                onClick={() => setActiveTab(tab)}
-                className={`flex-1 py-4 px-4 text-center capitalize font-medium whitespace-nowrap ${
-                  activeTab === tab ? 'bg-purple-600 text-white' : 'text-gray-400 hover:text-white'
-                }`}
-              >
-                {tab}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Tab Content */}
-        <div className="bg-gray-800 rounded-b-2xl p-6 border-x border-b border-gray-700">
-          {activeTab === 'overview' && (
-            <div className="text-white space-y-4">
-              <h3 className="text-2xl font-bold mb-4">Overview</h3>
-              <p className="text-gray-300">Welcome to your Life Stats Dashboard! Update your stats in each category to calculate your overall rating. All changes are saved automatically to Firebase.</p>
-              <div className="grid md:grid-cols-2 gap-4 mt-6">
-                <div className="bg-gray-700 p-4 rounded-lg">
-                  <h4 className="font-bold mb-2 flex items-center gap-2"><TrendingUp size={20} className="text-green-400" /> Build</h4>
-                  <p className="text-sm text-gray-300">Track your physical stats including weight, height, bench press, and squat.</p>
-                </div>
-                <div className="bg-gray-700 p-4 rounded-lg">
-                  <h4 className="font-bold mb-2 flex items-center gap-2"><Brain size={20} className="text-blue-400" /> Intelligence</h4>
-                  <p className="text-sm text-gray-300">Academic performance including GPA, AP classes, and test scores.</p>
-                </div>
-                <div className="bg-gray-700 p-4 rounded-lg">
-                  <h4 className="font-bold mb-2 flex items-center gap-2"><Heart size={20} className="text-orange-400" /> Lifestyle</h4>
-                  <p className="text-sm text-gray-300">Daily habits like screen time, sleep, exercise, and steps.</p>
-                </div>
-                <div className="bg-gray-700 p-4 rounded-lg">
-                  <h4 className="font-bold mb-2 flex items-center gap-2"><Flame size={20} className="text-red-400" /> Huzz</h4>
-                  <p className="text-sm text-gray-300">Relationship stats and social connections.</p>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {activeTab === 'build' && (
-            <div className="space-y-4">
-              <h3 className="text-2xl font-bold text-white mb-4">Build Stats</h3>
-              <div className="grid md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-gray-300 mb-2">Weight (lbs)</label>
-                  <input
-                    type="number"
-                    value={stats.weight}
-                    onChange={(e) => updateUserStats({ weight: parseFloat(e.target.value) || 0 })}
-                    className="w-full px-4 py-2 bg-gray-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-gray-300 mb-2">Height (inches)</label>
-                  <input
-                    type="number"
-                    value={stats.height}
-                    onChange={(e) => updateUserStats({ height: parseFloat(e.target.value) || 0 })}
-                    className="w-full px-4 py-2 bg-gray-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-gray-300 mb-2">Max Bench (lbs)</label>
-                  <input
-                    type="number"
-                    value={stats.bench}
-                    onChange={(e) => updateUserStats({ bench: parseFloat(e.target.value) || 0 })}
-                    className="w-full px-4 py-2 bg-gray-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-gray-300 mb-2">Max Squat (lbs)</label>
-                  <input
-                    type="number"
-                    value={stats.squat}
-                    onChange={(e) => updateUserStats({ squat: parseFloat(e.target.value) || 0 })}
-                    className="w-full px-4 py-2 bg-gray-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-                  />
-                </div>
-              </div>
-            </div>
-          )}
-
-          {activeTab === 'intelligence' && (
-            <div className="space-y-4">
-              <h3 className="text-2xl font-bold text-white mb-4">Intelligence Stats</h3>
-              <div className="grid md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-gray-300 mb-2">Weighted GPA</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={stats.gpa}
-                    onChange={(e) => updateUserStats({ gpa: parseFloat(e.target.value) || 0 })}
-                    className="w-full px-4 py-2 bg-gray-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-gray-300 mb-2">Tier 1 AP Classes</label>
-                  <input
-                    type="number"
-                    value={stats.tier1AP}
-                    onChange={(e) => updateUserStats({ tier1AP: parseInt(e.target.value) || 0 })}
-                    className="w-full px-4 py-2 bg-gray-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-gray-300 mb-2">Tier 2 AP Classes</label>
-                  <input
-                    type="number"
-                    value={stats.tier2AP}
-                    onChange={(e) => updateUserStats({ tier2AP: parseInt(e.target.value) || 0 })}
-                    className="w-full px-4 py-2 bg-gray-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-gray-300 mb-2">Test Type</label>
-                  <select
-                    value={stats.testType}
-                    onChange={(e) => updateUserStats({ testType: e.target.value })}
-                    className="w-full px-4 py-2 bg-gray-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-                  >
-                    <option value="SAT">SAT</option>
-                    <option value="ACT">ACT</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-gray-300 mb-2">{stats.testType} Score</label>
-                  <input
-                    type="number"
-                    value={stats.testScore}
-                    onChange={(e) => updateUserStats({ testScore: parseFloat(e.target.value) || 0 })}
-                    placeholder={stats.testType === 'SAT' ? 'Out of 1600' : 'Out of 36'}
-                    className="w-full px-4 py-2 bg-gray-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-                  />
-                </div>
-              </div>
-            </div>
-          )}
-
-          {activeTab === 'lifestyle' && (
-            <div className="space-y-4">
-              <h3 className="text-2xl font-bold text-white mb-4">Lifestyle Stats</h3>
-              <div className="grid md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-gray-300 mb-2">Screen Time (hours/day)</label>
-                  <input
-                    type="number"
-                    step="0.1"
-                    value={stats.screenTime}
-                    onChange={(e) => updateUserStats({ screenTime: parseFloat(e.target.value) || 0 })}
-                    className="w-full px-4 py-2 bg-gray-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-gray-300 mb-2">Sleep (hours/night)</label>
-                  <input
-                    type="number"
-                    step="0.1"
-                    value={stats.sleepHours}
-                    onChange={(e) => updateUserStats({ sleepHours: parseFloat(e.target.value) || 0 })}
-                    className="w-full px-4 py-2 bg-gray-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-gray-300 mb-2">Exercise (hours/week)</label>
-                  <input
-                    type="number"
-                    step="0.1"
-                    value={stats.exerciseHours}
-                    onChange={(e) => updateUserStats({ exerciseHours: parseFloat(e.target.value) || 0 })}
-                    className="w-full px-4 py-2 bg-gray-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-gray-300 mb-2">Daily Steps</label>
-                  <input
-                    type="number"
-                    value={stats.dailySteps}
-                    onChange={(e) => updateUserStats({ dailySteps: parseFloat(e.target.value) || 0 })}
-                    className="w-full px-4 py-2 bg-gray-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-                  />
-                </div>
-              </div>
-            </div>
-          )}
-
-          {activeTab === 'huzz' && (
-            <div className="space-y-4">
-              <h3 className="text-2xl font-bold text-white mb-4">Huzz Stats</h3>
-              <div className="grid md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-gray-300 mb-2">Kiss Count</label>
-                  <input
-                    type="number"
-                    value={stats.kissCount}
-                    onChange={(e) => updateUserStats({ kissCount: parseInt(e.target.value) || 0 })}
-                    className="w-full px-4 py-2 bg-gray-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-gray-300 mb-2">Body Count</label>
-                  <input
-                    type="number"
-                    value={stats.bodyCount}
-                    onChange={(e) => updateUserStats({ bodyCount: parseInt(e.target.value) || 0 })}
-                    className="w-full px-4 py-2 bg-gray-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-                  />
-                </div>
-                <div>
-                  <label className="flex items-center text-gray-300 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={stats.talking}
-                      onChange={(e) => updateUserStats({ talking: e.target.checked })}
-                      className="mr-2 w-5 h-5 accent-purple-600"
-                    />
-                    Talking to Someone
-                  </label>
-                </div>
-                <div>
-                  <label className="flex items-center text-gray-300 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={stats.dating}
-                      onChange={(e) => updateUserStats({ dating: e.target.checked })}
-                      className="mr-2 w-5 h-5 accent-purple-600"
-                    />
-                    Dating Someone
-                  </label>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
+</body>
+</html>
