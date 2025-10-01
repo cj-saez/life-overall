@@ -1,0 +1,710 @@
+import React, { useState, useEffect } from 'react';
+import { UserPlus, LogIn, LogOut, TrendingUp, Brain, Heart, Flame, User, Loader2 } from 'lucide-react';
+
+// Firebase imports
+import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js';
+import { 
+  getAuth, 
+  createUserWithEmailAndPassword, 
+  signInWithEmailAndPassword, 
+  signOut,
+  onAuthStateChanged 
+} from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js';
+import { 
+  getFirestore, 
+  doc, 
+  setDoc, 
+  getDoc, 
+  updateDoc 
+} from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
+
+// Firebase configuration
+const firebaseConfig = {
+  apiKey: "AIzaSyCMnZBmp_tZ-IbR_h_PIcN29qezbm0MNXQ",
+  authDomain: "life-overall.firebaseapp.com",
+  projectId: "life-overall",
+  storageBucket: "life-overall.firebasestorage.app",
+  messagingSenderId: "314757028939",
+  appId: "1:314757028939:web:cbee855b691fe94c0841ce"
+};
+
+// Initialize Firebase
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+
+// Formulas from your Java code
+const Formulas = {
+  limit: (value, min, max) => Math.max(min, Math.min(max, value)),
+  
+  build: (w, h, b, s) => {
+    const HS = ((h - 140) / 60.0) * 100.0;
+    const HSLimited = Formulas.limit(HS, 0, 100);
+    const bmi = w / Math.pow(h / 100.0, 2);
+    const WS = Formulas.limit(100.0 - 6.0 * Math.abs(bmi - 22.5), 0, 100);
+    const benchRatio = b / w;
+    const SS = Formulas.limit((benchRatio / 1.5) * 100.0, 0, 100);
+    const squatRatio = s / w;
+    const SQ = Formulas.limit((squatRatio / 1.5) * 100.0, 0, 100);
+    return Math.round(0.20 * HSLimited + 0.40 * WS + 0.20 * SS + 0.20 * SQ);
+  },
+  
+  calculateIntelligenceSAT: (gpa, tier1AP, tier2AP, satScore) => {
+    const GS = (gpa / 5.0) * 100.0;
+    const apPoints = 3.0 * tier1AP + 2.0 * tier2AP;
+    const AP_score = Formulas.limit((apPoints / 26.0) * 100.0, 0.0, 100.0);
+    const TS = (satScore / 1600.0) * 100.0;
+    return Math.round(0.45 * GS + 0.25 * AP_score + 0.30 * TS);
+  },
+  
+  calculateIntelligenceACT: (gpa, tier1AP, tier2AP, actScore) => {
+    const GS = (gpa / 5.0) * 100.0;
+    const apPoints = 3.0 * tier1AP + 2.0 * tier2AP;
+    const APscore = Formulas.limit(apPoints * 3.5, 0.0, 100.0);
+    const TS = (actScore / 36.0) * 100.0;
+    return Math.round(0.45 * GS + 0.25 * APscore + 0.30 * TS);
+  },
+  
+  calculateLifestyle: (avgScreenTime, avgSleepHours, weeklyExerciseHours, dailySteps) => {
+    let screenScore;
+    if (avgScreenTime <= 3) {
+      screenScore = (avgScreenTime / 3.0) * 100;
+    } else if (avgScreenTime <= 10) {
+      screenScore = ((10 - avgScreenTime) / 7.0) * 100;
+    } else {
+      screenScore = 0;
+    }
+    screenScore = Formulas.limit(screenScore, 0, 100);
+    
+    let sleepScore;
+    if (avgSleepHours <= 8) {
+      sleepScore = (avgSleepHours / 8.0) * 100.0;
+    } else if (avgSleepHours <= 12) {
+      sleepScore = ((12 - avgSleepHours) / 4.0) * 100.0;
+    } else {
+      sleepScore = 0;
+    }
+    sleepScore = Formulas.limit(sleepScore, 0, 100);
+    
+    const exerciseScore = Formulas.limit((weeklyExerciseHours / 7.0) * 100.0, 0, 100);
+    const stepsScore = Formulas.limit((dailySteps / 10000.0) * 100.0, 0, 100);
+    
+    return Math.round(0.25 * screenScore + 0.35 * sleepScore + 0.25 * exerciseScore + 0.15 * stepsScore);
+  },
+  
+  calculateHuzz: (kissCount, bodies, talking, dating) => {
+    const KC = Math.min(kissCount, 10) / 10.0 * 100;
+    const BC = Math.min(bodies, 5) / 15.0 * 100;
+    const TS = talking ? 100.0 : 50.0;
+    const DS = dating ? 100.0 : 60.0;
+    return Math.round(0.40 * KC + 0.20 * BC + 0.20 * TS + 0.20 * DS);
+  },
+  
+  calculateOverall: (build, intelligence, lifestyle, huzz) => {
+    return Math.round((0.35 * build) + (0.40 * intelligence) + (0.25 * lifestyle));
+  }
+};
+
+const Conversion = {
+  toKG: (lb) => lb / 2.205,
+  toCM: (h) => h * 2.54
+};
+
+const OverallBadge = ({ label, value, color }) => (
+  <div className="bg-gray-800 rounded-lg p-4 border-2" style={{ borderColor: color }}>
+    <div className="text-gray-400 text-sm font-medium mb-1">{label}</div>
+    <div className="text-4xl font-bold" style={{ color }}>{value}</div>
+  </div>
+);
+
+export default function App() {
+  const [currentUser, setCurrentUser] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [view, setView] = useState('login');
+  const [loginForm, setLoginForm] = useState({ email: '', password: '' });
+  const [registerForm, setRegisterForm] = useState({ username: '', email: '', password: '', confirmPassword: '' });
+  const [stats, setStats] = useState(null);
+  const [activeTab, setActiveTab] = useState('overview');
+  const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  // Default stats structure
+  const defaultStats = {
+    name: '',
+    weight: 0,
+    height: 0,
+    bench: 0,
+    squat: 0,
+    gpa: 0,
+    tier1AP: 0,
+    tier2AP: 0,
+    testType: 'SAT',
+    testScore: 0,
+    screenTime: 0,
+    sleepHours: 0,
+    exerciseHours: 0,
+    dailySteps: 0,
+    kissCount: 0,
+    bodyCount: 0,
+    talking: false,
+    dating: false
+  };
+
+  // Listen for auth state changes
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        setCurrentUser(user);
+        await loadUserStats(user.uid);
+        setView('dashboard');
+      } else {
+        setCurrentUser(null);
+        setStats(null);
+        setView('login');
+      }
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  // Load user stats from Firestore
+  const loadUserStats = async (uid) => {
+    try {
+      const docRef = doc(db, 'users', uid);
+      const docSnap = await getDoc(docRef);
+      
+      if (docSnap.exists()) {
+        setStats(docSnap.data());
+      } else {
+        // Create default stats for new user
+        const newStats = { ...defaultStats };
+        await setDoc(docRef, newStats);
+        setStats(newStats);
+      }
+    } catch (err) {
+      console.error('Error loading stats:', err);
+      setError('Failed to load your stats');
+    }
+  };
+
+  // Handle registration
+  const handleRegister = async (e) => {
+    e.preventDefault();
+    setError('');
+    
+    if (registerForm.password !== registerForm.confirmPassword) {
+      setError('Passwords do not match');
+      return;
+    }
+
+    if (registerForm.password.length < 6) {
+      setError('Password must be at least 6 characters');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const userCredential = await createUserWithEmailAndPassword(
+        auth, 
+        registerForm.email, 
+        registerForm.password
+      );
+      
+      // Create user document with default stats
+      const newStats = { ...defaultStats, name: registerForm.username };
+      await setDoc(doc(db, 'users', userCredential.user.uid), newStats);
+      
+      setStats(newStats);
+      setRegisterForm({ username: '', email: '', password: '', confirmPassword: '' });
+    } catch (err) {
+      console.error('Registration error:', err);
+      if (err.code === 'auth/email-already-in-use') {
+        setError('Email already in use');
+      } else if (err.code === 'auth/invalid-email') {
+        setError('Invalid email address');
+      } else {
+        setError('Registration failed. Please try again.');
+      }
+    }
+    setLoading(false);
+  };
+
+  // Handle login
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    setError('');
+    setLoading(true);
+    
+    try {
+      await signInWithEmailAndPassword(auth, loginForm.email, loginForm.password);
+      setLoginForm({ email: '', password: '' });
+    } catch (err) {
+      console.error('Login error:', err);
+      if (err.code === 'auth/invalid-credential') {
+        setError('Invalid email or password');
+      } else if (err.code === 'auth/user-not-found') {
+        setError('No account found with this email');
+      } else {
+        setError('Login failed. Please try again.');
+      }
+    }
+    setLoading(false);
+  };
+
+  // Handle logout
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+    } catch (err) {
+      console.error('Logout error:', err);
+    }
+  };
+
+  // Update user stats in Firestore
+  const updateUserStats = async (newStats) => {
+    if (!currentUser) return;
+    
+    const updatedStats = { ...stats, ...newStats };
+    setStats(updatedStats);
+    
+    // Debounced save to Firestore
+    setSaving(true);
+    try {
+      await updateDoc(doc(db, 'users', currentUser.uid), updatedStats);
+      setTimeout(() => setSaving(false), 500);
+    } catch (err) {
+      console.error('Error updating stats:', err);
+      setError('Failed to save changes');
+      setSaving(false);
+    }
+  };
+
+  const calculateOveralls = () => {
+    if (!stats) return { build: 0, intelligence: 0, lifestyle: 0, huzz: 0, total: 0 };
+    
+    const weightKG = Conversion.toKG(stats.weight);
+    const heightCM = Conversion.toCM(stats.height);
+    const benchKG = Conversion.toKG(stats.bench);
+    const squatKG = Conversion.toKG(stats.squat);
+    
+    const build = stats.weight > 0 ? Formulas.build(weightKG, heightCM, benchKG, squatKG) : 0;
+    
+    const intelligence = stats.gpa > 0 
+      ? (stats.testType === 'SAT' 
+          ? Formulas.calculateIntelligenceSAT(stats.gpa, stats.tier1AP, stats.tier2AP, stats.testScore)
+          : Formulas.calculateIntelligenceACT(stats.gpa, stats.tier1AP, stats.tier2AP, stats.testScore))
+      : 0;
+    
+    const lifestyle = stats.sleepHours > 0 
+      ? Formulas.calculateLifestyle(stats.screenTime, stats.sleepHours, stats.exerciseHours, stats.dailySteps)
+      : 0;
+    
+    const huzz = Formulas.calculateHuzz(stats.kissCount, stats.bodyCount, stats.talking, stats.dating);
+    
+    const total = Formulas.calculateOverall(build, intelligence, lifestyle, huzz);
+    
+    return { build, intelligence, lifestyle, huzz, total };
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-gray-900 flex items-center justify-center">
+        <Loader2 className="text-purple-400 animate-spin" size={48} />
+      </div>
+    );
+  }
+
+  if (view === 'login' || view === 'register') {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-gray-900 flex items-center justify-center p-4">
+        <div className="bg-gray-800 rounded-2xl shadow-2xl p-8 w-full max-w-md border border-purple-500">
+          <div className="text-center mb-8">
+            <h1 className="text-4xl font-bold text-white mb-2">Life Stats Tracker</h1>
+            <p className="text-gray-400">NBA 2K Style Overall Rating</p>
+          </div>
+          
+          {view === 'login' ? (
+            <form onSubmit={handleLogin} className="space-y-4">
+              <div>
+                <label className="block text-gray-300 mb-2">Email</label>
+                <input
+                  type="email"
+                  value={loginForm.email}
+                  onChange={(e) => setLoginForm({ ...loginForm, email: e.target.value })}
+                  className="w-full px-4 py-2 bg-gray-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-gray-300 mb-2">Password</label>
+                <input
+                  type="password"
+                  value={loginForm.password}
+                  onChange={(e) => setLoginForm({ ...loginForm, password: e.target.value })}
+                  className="w-full px-4 py-2 bg-gray-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  required
+                />
+              </div>
+              {error && <p className="text-red-400 text-sm">{error}</p>}
+              <button 
+                type="submit" 
+                disabled={loading}
+                className="w-full bg-purple-600 hover:bg-purple-700 disabled:bg-purple-800 text-white font-bold py-3 rounded-lg flex items-center justify-center gap-2"
+              >
+                {loading ? <Loader2 className="animate-spin" size={20} /> : <LogIn size={20} />}
+                {loading ? 'Logging in...' : 'Login'}
+              </button>
+              <button type="button" onClick={() => setView('register')} className="w-full text-purple-400 hover:text-purple-300">
+                Don't have an account? Register
+              </button>
+            </form>
+          ) : (
+            <form onSubmit={handleRegister} className="space-y-4">
+              <div>
+                <label className="block text-gray-300 mb-2">Username</label>
+                <input
+                  type="text"
+                  value={registerForm.username}
+                  onChange={(e) => setRegisterForm({ ...registerForm, username: e.target.value })}
+                  className="w-full px-4 py-2 bg-gray-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-gray-300 mb-2">Email</label>
+                <input
+                  type="email"
+                  value={registerForm.email}
+                  onChange={(e) => setRegisterForm({ ...registerForm, email: e.target.value })}
+                  className="w-full px-4 py-2 bg-gray-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-gray-300 mb-2">Password</label>
+                <input
+                  type="password"
+                  value={registerForm.password}
+                  onChange={(e) => setRegisterForm({ ...registerForm, password: e.target.value })}
+                  className="w-full px-4 py-2 bg-gray-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-gray-300 mb-2">Confirm Password</label>
+                <input
+                  type="password"
+                  value={registerForm.confirmPassword}
+                  onChange={(e) => setRegisterForm({ ...registerForm, confirmPassword: e.target.value })}
+                  className="w-full px-4 py-2 bg-gray-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  required
+                />
+              </div>
+              {error && <p className="text-red-400 text-sm">{error}</p>}
+              <button 
+                type="submit" 
+                disabled={loading}
+                className="w-full bg-green-600 hover:bg-green-700 disabled:bg-green-800 text-white font-bold py-3 rounded-lg flex items-center justify-center gap-2"
+              >
+                {loading ? <Loader2 className="animate-spin" size={20} /> : <UserPlus size={20} />}
+                {loading ? 'Creating account...' : 'Register'}
+              </button>
+              <button type="button" onClick={() => setView('login')} className="w-full text-purple-400 hover:text-purple-300">
+                Already have an account? Login
+              </button>
+            </form>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  const overalls = calculateOveralls();
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-gray-900 p-4">
+      <div className="max-w-6xl mx-auto">
+        {/* Header */}
+        <div className="bg-gray-800 rounded-2xl p-6 mb-6 border border-purple-500">
+          <div className="flex justify-between items-center">
+            <div className="flex items-center gap-3">
+              <User className="text-purple-400" size={32} />
+              <div>
+                <h1 className="text-2xl font-bold text-white">{stats?.name || 'User'}</h1>
+                <p className="text-gray-400">Life Stats Dashboard</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              {saving && (
+                <span className="text-sm text-gray-400 flex items-center gap-2">
+                  <Loader2 className="animate-spin" size={16} />
+                  Saving...
+                </span>
+              )}
+              <button onClick={handleLogout} className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg flex items-center gap-2">
+                <LogOut size={20} /> Logout
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Overall Display */}
+        <div className="bg-gradient-to-r from-purple-600 to-blue-600 rounded-2xl p-8 mb-6 text-center">
+          <h2 className="text-white text-xl mb-2">TOTAL OVERALL</h2>
+          <div className="text-8xl font-bold text-white mb-2">{overalls.total}</div>
+          <div className="text-white text-lg">OVR</div>
+        </div>
+
+        {/* Category Overalls */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+          <OverallBadge label="BUILD" value={overalls.build} color="#10b981" />
+          <OverallBadge label="INTELLIGENCE" value={overalls.intelligence} color="#3b82f6" />
+          <OverallBadge label="LIFESTYLE" value={overalls.lifestyle} color="#f59e0b" />
+          <OverallBadge label="HUZZ" value={overalls.huzz} color="#ef4444" />
+        </div>
+
+        {/* Tabs */}
+        <div className="bg-gray-800 rounded-t-2xl border border-gray-700">
+          <div className="flex border-b border-gray-700 overflow-x-auto">
+            {['overview', 'build', 'intelligence', 'lifestyle', 'huzz'].map((tab) => (
+              <button
+                key={tab}
+                onClick={() => setActiveTab(tab)}
+                className={`flex-1 py-4 px-4 text-center capitalize font-medium whitespace-nowrap ${
+                  activeTab === tab ? 'bg-purple-600 text-white' : 'text-gray-400 hover:text-white'
+                }`}
+              >
+                {tab}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Tab Content */}
+        <div className="bg-gray-800 rounded-b-2xl p-6 border-x border-b border-gray-700">
+          {activeTab === 'overview' && (
+            <div className="text-white space-y-4">
+              <h3 className="text-2xl font-bold mb-4">Overview</h3>
+              <p className="text-gray-300">Welcome to your Life Stats Dashboard! Update your stats in each category to calculate your overall rating. All changes are saved automatically to Firebase.</p>
+              <div className="grid md:grid-cols-2 gap-4 mt-6">
+                <div className="bg-gray-700 p-4 rounded-lg">
+                  <h4 className="font-bold mb-2 flex items-center gap-2"><TrendingUp size={20} className="text-green-400" /> Build</h4>
+                  <p className="text-sm text-gray-300">Track your physical stats including weight, height, bench press, and squat.</p>
+                </div>
+                <div className="bg-gray-700 p-4 rounded-lg">
+                  <h4 className="font-bold mb-2 flex items-center gap-2"><Brain size={20} className="text-blue-400" /> Intelligence</h4>
+                  <p className="text-sm text-gray-300">Academic performance including GPA, AP classes, and test scores.</p>
+                </div>
+                <div className="bg-gray-700 p-4 rounded-lg">
+                  <h4 className="font-bold mb-2 flex items-center gap-2"><Heart size={20} className="text-orange-400" /> Lifestyle</h4>
+                  <p className="text-sm text-gray-300">Daily habits like screen time, sleep, exercise, and steps.</p>
+                </div>
+                <div className="bg-gray-700 p-4 rounded-lg">
+                  <h4 className="font-bold mb-2 flex items-center gap-2"><Flame size={20} className="text-red-400" /> Huzz</h4>
+                  <p className="text-sm text-gray-300">Relationship stats and social connections.</p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'build' && (
+            <div className="space-y-4">
+              <h3 className="text-2xl font-bold text-white mb-4">Build Stats</h3>
+              <div className="grid md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-gray-300 mb-2">Weight (lbs)</label>
+                  <input
+                    type="number"
+                    value={stats.weight}
+                    onChange={(e) => updateUserStats({ weight: parseFloat(e.target.value) || 0 })}
+                    className="w-full px-4 py-2 bg-gray-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-gray-300 mb-2">Height (inches)</label>
+                  <input
+                    type="number"
+                    value={stats.height}
+                    onChange={(e) => updateUserStats({ height: parseFloat(e.target.value) || 0 })}
+                    className="w-full px-4 py-2 bg-gray-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-gray-300 mb-2">Max Bench (lbs)</label>
+                  <input
+                    type="number"
+                    value={stats.bench}
+                    onChange={(e) => updateUserStats({ bench: parseFloat(e.target.value) || 0 })}
+                    className="w-full px-4 py-2 bg-gray-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-gray-300 mb-2">Max Squat (lbs)</label>
+                  <input
+                    type="number"
+                    value={stats.squat}
+                    onChange={(e) => updateUserStats({ squat: parseFloat(e.target.value) || 0 })}
+                    className="w-full px-4 py-2 bg-gray-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'intelligence' && (
+            <div className="space-y-4">
+              <h3 className="text-2xl font-bold text-white mb-4">Intelligence Stats</h3>
+              <div className="grid md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-gray-300 mb-2">Weighted GPA</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={stats.gpa}
+                    onChange={(e) => updateUserStats({ gpa: parseFloat(e.target.value) || 0 })}
+                    className="w-full px-4 py-2 bg-gray-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-gray-300 mb-2">Tier 1 AP Classes</label>
+                  <input
+                    type="number"
+                    value={stats.tier1AP}
+                    onChange={(e) => updateUserStats({ tier1AP: parseInt(e.target.value) || 0 })}
+                    className="w-full px-4 py-2 bg-gray-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-gray-300 mb-2">Tier 2 AP Classes</label>
+                  <input
+                    type="number"
+                    value={stats.tier2AP}
+                    onChange={(e) => updateUserStats({ tier2AP: parseInt(e.target.value) || 0 })}
+                    className="w-full px-4 py-2 bg-gray-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-gray-300 mb-2">Test Type</label>
+                  <select
+                    value={stats.testType}
+                    onChange={(e) => updateUserStats({ testType: e.target.value })}
+                    className="w-full px-4 py-2 bg-gray-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  >
+                    <option value="SAT">SAT</option>
+                    <option value="ACT">ACT</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-gray-300 mb-2">{stats.testType} Score</label>
+                  <input
+                    type="number"
+                    value={stats.testScore}
+                    onChange={(e) => updateUserStats({ testScore: parseFloat(e.target.value) || 0 })}
+                    placeholder={stats.testType === 'SAT' ? 'Out of 1600' : 'Out of 36'}
+                    className="w-full px-4 py-2 bg-gray-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'lifestyle' && (
+            <div className="space-y-4">
+              <h3 className="text-2xl font-bold text-white mb-4">Lifestyle Stats</h3>
+              <div className="grid md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-gray-300 mb-2">Screen Time (hours/day)</label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={stats.screenTime}
+                    onChange={(e) => updateUserStats({ screenTime: parseFloat(e.target.value) || 0 })}
+                    className="w-full px-4 py-2 bg-gray-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-gray-300 mb-2">Sleep (hours/night)</label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={stats.sleepHours}
+                    onChange={(e) => updateUserStats({ sleepHours: parseFloat(e.target.value) || 0 })}
+                    className="w-full px-4 py-2 bg-gray-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-gray-300 mb-2">Exercise (hours/week)</label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={stats.exerciseHours}
+                    onChange={(e) => updateUserStats({ exerciseHours: parseFloat(e.target.value) || 0 })}
+                    className="w-full px-4 py-2 bg-gray-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-gray-300 mb-2">Daily Steps</label>
+                  <input
+                    type="number"
+                    value={stats.dailySteps}
+                    onChange={(e) => updateUserStats({ dailySteps: parseFloat(e.target.value) || 0 })}
+                    className="w-full px-4 py-2 bg-gray-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'huzz' && (
+            <div className="space-y-4">
+              <h3 className="text-2xl font-bold text-white mb-4">Huzz Stats</h3>
+              <div className="grid md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-gray-300 mb-2">Kiss Count</label>
+                  <input
+                    type="number"
+                    value={stats.kissCount}
+                    onChange={(e) => updateUserStats({ kissCount: parseInt(e.target.value) || 0 })}
+                    className="w-full px-4 py-2 bg-gray-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-gray-300 mb-2">Body Count</label>
+                  <input
+                    type="number"
+                    value={stats.bodyCount}
+                    onChange={(e) => updateUserStats({ bodyCount: parseInt(e.target.value) || 0 })}
+                    className="w-full px-4 py-2 bg-gray-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  />
+                </div>
+                <div>
+                  <label className="flex items-center text-gray-300 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={stats.talking}
+                      onChange={(e) => updateUserStats({ talking: e.target.checked })}
+                      className="mr-2 w-5 h-5 accent-purple-600"
+                    />
+                    Talking to Someone
+                  </label>
+                </div>
+                <div>
+                  <label className="flex items-center text-gray-300 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={stats.dating}
+                      onChange={(e) => updateUserStats({ dating: e.target.checked })}
+                      className="mr-2 w-5 h-5 accent-purple-600"
+                    />
+                    Dating Someone
+                  </label>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
