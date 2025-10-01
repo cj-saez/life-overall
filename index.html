@@ -23,7 +23,7 @@
 </head>
 <body class="bg-gradient-to-br from-gray-900 via-purple-900 to-gray-900 min-h-screen">
 
-<!-- Loading Screen -->
+
 <div id="loadingScreen" class="min-h-screen flex items-center justify-center">
   <div class="loader"></div>
 </div>
@@ -615,7 +615,7 @@
     }
   });
 
-  // Tab switching
+  
   document.querySelectorAll('.tab-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       const tab = btn.dataset.tab;
@@ -636,7 +636,7 @@
     });
   });
 
-  // Form input listeners
+
   const inputFields = ['weight', 'height', 'bench', 'squat', 'gpa', 'tier1AP', 'tier2AP', 
                        'testScore', 'screenTime', 'sleepHours', 'exerciseHours', 'dailySteps',
                        'kissCount', 'bodyCount'];
@@ -663,8 +663,7 @@
     userStats.dating = e.target.checked;
     debouncedSave();
   });
-
-  // Auth state observer
+r
   onAuthStateChanged(auth, async (user) => {
     if (user) {
       currentUser = user;
